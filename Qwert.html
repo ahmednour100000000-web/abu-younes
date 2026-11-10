@@ -412,6 +412,82 @@ body.dark .opening-card { background: var(--card); border-color: var(--border); 
   color: var(--accent) !important;
   box-shadow: none !important;
 }
+  /* 🌙 توحيد ألوان الدارك مود في كل التطبيق */
+body.dark {
+  color-scheme: dark;
+}
+
+/* الكروت والخلفيات */
+body.dark .card,
+body.dark .kpi-card,
+body.dark .acc-pro-card,
+body.dark .modal-content,
+body.dark .summary-box,
+body.dark .dist-tab,
+body.dark .btn-secondary {
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* الكروت اللي جواها خلفيات فاتحة */
+body.dark div[style*="background: white"],
+body.dark div[style*="background: #fff"],
+body.dark div[style*="background:var(--bg)"] {
+  background-color: var(--bg-alt) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* الجداول */
+body.dark table,
+body.dark tr,
+body.dark td,
+body.dark th {
+  background-color: var(--card) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+body.dark th {
+  background-color: var(--bg-alt) !important;
+}
+
+/* خانات الكتابة */
+body.dark .form-control,
+body.dark input,
+body.dark select,
+body.dark textarea {
+  background-color: var(--bg-alt) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* أزرار معينة */
+body.dark .btn-accent {
+  background-color: var(--accent) !important;
+  color: #000 !important;
+}
+
+/* الشريط العلوي والسفلي */
+body.dark .topbar,
+body.dark .bottom-nav {
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+}
+body.dark .bottom-nav-item {
+  color: var(--text-muted) !important;
+}
+body.dark .bottom-nav-item.active {
+  color: var(--accent) !important;
+}
+
+/* النصوص اللي ممكن تكون غامقة */
+body.dark h1, body.dark h2, body.dark h3, body.dark h4, body.dark h5, body.dark h6 {
+  color: var(--text) !important;
+}
+body.dark p, body.dark span, body.dark div {
+  border-color: var(--border) !important;
+}
 </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -611,7 +687,16 @@ body.read-only-mode .btn-primary {
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
-
+<!-- 🆕 سحب الشاشة للتحديث -->
+<div id="pullToRefresh" style="position:fixed; top:0; left:0; width:100%; height:60px; background:var(--bg); display:flex; justify-content:center; align-items:center; z-index:9998; transform:translateY(-60px); transition:transform 0.3s ease;">
+  <i class="fas fa-sync-alt fa-spin" style="font-size:24px; color:var(--primary);"></i>
+  <span style="margin-right:10px; font-weight:bold; color:var(--text);">جاري التحديث...</span>
+</div>
+  <!-- 🆕 مؤشر حالة الحفظ العائم -->
+<div id="syncIndicator" style="display:none; position:fixed; bottom:20px; right:20px; z-index:99999; background:var(--card); border:1px solid var(--border); border-radius:30px; padding:8px 16px; box-shadow:var(--shadow-lg); align-items:center; gap:8px; font-size:13px; font-weight:bold; transition:all 0.3s ease;">
+  <i id="syncIndicatorIcon" class="fas fa-circle-notch fa-spin" style="color:var(--warning);"></i>
+  <span id="syncIndicatorText" style="color:var(--text);">جاري الحفظ...</span>
+</div>
 <div class="modal" id="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -626,9 +711,11 @@ body.read-only-mode .btn-primary {
 <div class="modal" id="confirmModal" style="z-index: 11000;"></div>
 
 <script>
+
   const SUPABASE_URL = 'https://xfcqnvhwaacmbziihlbt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_ZzmWbOxA6ciffXRXMmIwQA_r-V7ilbk';
 const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  
 const DB_KEY = 'abuYounes_v17';
 const DB_VERSION = 18.1;
 const APP_VERSION = '18.1';
@@ -731,6 +818,9 @@ roles: [
   production: [],
   distRecords: [],
   accRecords: [],
+  pendingMaterialAudits: [],
+  pendingDistributionAudits: [],
+  pendingPurchases: [],
   treasury: [],
   handovers: [],
   handoverLines: [],
@@ -860,6 +950,10 @@ function showSyncInfo() {
   );
 }
 async function saveDB() {
+  const indicator = document.getElementById('syncIndicator');
+  const icon = document.getElementById('syncIndicatorIcon');
+  const text = document.getElementById('syncIndicatorText');
+
   try {
     const jsonStr = JSON.stringify(db);
     let toStore = jsonStr;
@@ -870,22 +964,48 @@ async function saveDB() {
     localStorage.setItem(DB_KEY, toStore);
 
     if (_supabase) {
-      setSyncStatus('syncing');
-      const { error } = await _supabase.from('app_state').upsert({ id: 1, data: db, updated_at: new Date() });
-      if (error) {
-        setSyncStatus('error');
-        console.error('Sync error:', error);
-      } else {
-        setSyncStatus('synced');
+      // إظهار المؤشر
+      if (indicator) {
+        indicator.style.display = 'flex';
+        icon.className = 'fas fa-circle-notch fa-spin';
+        icon.style.color = 'var(--warning)';
+        text.textContent = 'جاري الحفظ...';
+        text.style.color = 'var(--text)';
       }
-    } else {
-      setSyncStatus('offline');
+
+      const { error } = await _supabase.from('app_state').upsert({ id: 1, data: db, updated_at: new Date() });
+      
+      if (error) throw error;
+
+      // نجاح الحفظ
+      if (indicator) {
+        icon.className = 'fas fa-check-circle';
+        icon.style.color = 'var(--success)';
+        text.textContent = 'تم الحفظ بنجاح';
+        text.style.color = 'var(--success)';
+        
+        setTimeout(() => {
+          if (indicator) indicator.style.display = 'none';
+        }, 2500);
+      }
     }
   } catch (e) {
-    setSyncStatus('error');
     console.error('saveDB error:', e);
+    // فشل الحفظ
+    if (indicator) {
+      icon.className = 'fas fa-times-circle';
+      icon.style.color = 'var(--danger)';
+      text.textContent = 'فشل الحفظ (تحقق من النت)';
+      text.style.color = 'var(--danger)';
+      
+      setTimeout(() => {
+        if (indicator) indicator.style.display = 'none';
+      }, 4000);
+    }
   }
 }
+  
+
 
 function deepMerge(base, over) {
   const result = JSON.parse(JSON.stringify(base));
@@ -976,19 +1096,15 @@ function canView(section) {
 function canEdit(section) {
   if (!currentUser) return false;
   
-  // لو المستخدم ليه صلاحيات مخصصة، احترمها فوراً
+  if (currentUser.role === 'admin') return true;
+  
   if (currentUser.permissions && currentUser.permissions.edit) {
     return currentUser.permissions.edit.includes(section);
   }
-  
-  // لو مفيش صلاحيات مخصصة، وبنشوف رتبته
-  if (currentUser.role === 'admin') return true;
-  
-  // باقي الرتب (افتراضياً بياخدوا نفس صلاحيات العرض بتاعتهم)
   return (rolePermissions[currentUser.role] || []).includes(section);
 }
 
-function applyPermissions() {
+  function applyPermissions() {
   $$('.nav-item').forEach(el => {
     const sec = el.dataset.section;
     el.style.display = canView(sec) ? '' : 'none';
@@ -1000,7 +1116,6 @@ function applyPermissions() {
     el.style.display = canView(sec) ? 'flex' : 'none';
   });
 }
-
 function toggle() {
   const isDark = document.body.classList.toggle('dark');
   const icon = $('Icon');
@@ -1778,9 +1893,12 @@ function getTodayOvenReturns() {
     .filter(r => r.date === getViewDate() && r.type === 'مرتجع للفرن')
     .reduce((a, b) => a + (+b.amount || 0), 0);
 }
-
+  
 function getAvailableToDistribute() {
-  const v = getTodayNetProduction() - getTodayGrossDistributed() + getTodayOvenReturns();
+  const pendingAudits = db.pendingDistributionAudits || [];
+  const pendingMoney = pendingAudits.reduce((sum, a) => sum + (a.netBreads * (db.settings.breadPrice || 2.5)), 0);
+  
+  const v = getTodayNetProduction() - pendingMoney - getTodayGrossDistributed() + getTodayOvenReturns();
   return v > 0 ? v : 0;
 }
 
@@ -1821,11 +1939,10 @@ function getTodayOperatingProfit() {
     - getTodayEatingBread()
     - getTodayReturnsLoss();
 }
-
 function getAllOpenHandovers() {
   return db.handovers.filter(h =>
     h.paid < h.amount &&
-    (h.type === 'استاند' || h.type === 'بيع مباشر')
+    (h.type === 'استاند' || h.type === 'بيع مباشر' || h.type === 'أوردر')
   );
 }
 
@@ -2199,12 +2316,35 @@ function saveBatch(btn) {
   requireSaveConfirm({
     summary,
     onConfirm: () => {
-      const flourCost = deductInventory('دقيق', flour);
-      db.production.push({
-        id: uid(), date: db.date, employee: currentUser.name, type: 'batch',
-        tawla: t, flourUsed: flour, kasr: kasr, sahla: sahla, waste: waste,
-        totalBreads: totalBreads, netBreads: netBreads, netMoney: netMoney, cost: flourCost
-      });
+      const batchId = uid();
+const flourCost = deductInventory('دقيق', flour);
+db.production.push({
+  id: batchId, date: db.date, employee: currentUser.name, type: 'batch',
+  tawla: t, flourUsed: flour, kasr: kasr, sahla: sahla, waste: waste,
+  totalBreads: totalBreads, netBreads: netBreads, netMoney: netMoney, cost: flourCost
+});
+
+// 🆕 إضافة طلب مراجعة للمخزن
+db.pendingMaterialAudits.push({
+  id: uid(),
+  batchId: batchId,
+  date: db.date,
+  employee: currentUser.name,
+  item: 'دقيق',
+  loggedQty: flour,
+  tawla: t,
+  status: 'pending'
+});
+      // 🆕 إضافة طلب استلام وتوزيع
+db.pendingDistributionAudits.push({
+  id: uid(),
+  batchId: batchId,
+  date: db.date,
+  employee: currentUser.name,
+  netBreads: netBreads,
+  tawla: t,
+  status: 'pending'
+});
       logAction('تسجيل عجنة', `${t} طاولة - صافي ${netBreads} رغيف`);
       saveDB();
       closeModal();
@@ -2961,6 +3101,14 @@ renderers.distribution = function () {
   });
 
   content.innerHTML = `
+${(db.pendingDistributionAudits || []).length > 0 ? `
+  <div style="background:var(--info-bg); border:2px dashed var(--info); padding:16px; border-radius:12px; margin-bottom:20px; text-align:center;">
+    <i class="fas fa-bread-slice" style="font-size:36px; color:var(--info); margin-bottom:10px;"></i>
+    <h3 style="color:var(--info); font-size:16px; font-weight:900; margin-bottom:8px;">تنبيه: عجنات بانتظار الاستلام</h3>
+    <p style="color:var(--text); font-size:13px; font-weight:bold; margin-bottom:16px;">يوجد ${(db.pendingDistributionAudits || []).length} عجنة جديدة من الإنتاج لم يتم استلامها بعد.</p>
+    <button class="btn btn-info btn-lg" onclick="openDistributionAuditModal()" style="box-shadow:0 4px 10px rgba(59,130,246,0.4);"><i class="fas fa-clipboard-check"></i> استلام العجنات الآن</button>
+  </div>
+` : ''}
     <div class="page-header">
       <div class="page-title">
         <i class="fas fa-truck"></i>
@@ -3167,6 +3315,58 @@ function viewDirectDetails() {
   html += `</tbody></table>`;
   openModal('تفاصيل البيع المباشر', html, `<button class="btn btn-secondary" onclick="closeModal()">إغلاق</button>`);
 }
+function openDistributionAuditModal() {
+  const pending = db.pendingDistributionAudits || [];
+  if (pending.length === 0) return toast('لا يوجد عجنات جديدة', 'info');
+
+  let listHTML = pending.map((audit) => `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+        <div>
+          <div style="font-weight:900; color:var(--primary); font-size:15px;">عجنة من: ${esc(audit.employee)}</div>
+          <div style="font-size:11px; color:var(--text-muted);">التاريخ: ${esc(audit.date)} | الطوايل: ${audit.tawla}</div>
+        </div>
+        <div style="font-size:16px; font-weight:900; color:var(--success);">${audit.netBreads} رغيف</div>
+      </div>
+      <button class="btn btn-success btn-block" onclick="confirmDistributionAudit('${audit.id}')"><i class="fas fa-check"></i> تأكيد استلام العجنة</button>
+    </div>
+  `).join('');
+
+  openModal('استلام عجنات الإنتاج', 
+    `<div style="max-height:400px; overflow-y:auto; padding:5px;">${listHTML}</div>`,
+    `<button class="btn btn-secondary btn-block" onclick="closeModal()">إغلاق</button>`
+  );
+}
+
+function confirmDistributionAudit(id) {
+  const auditIndex = db.pendingDistributionAudits.findIndex(a => a.id == id);
+  if (auditIndex === -1) return;
+  const audit = db.pendingDistributionAudits[auditIndex];
+
+  showConfirm('تأكيد استلام', `هل أنت متأكد من استلام عجنة <b>${audit.netBreads} رغيف</b>؟`, () => {
+    db.pendingDistributionAudits.splice(auditIndex, 1);
+    logAction('استلام عجنة إنتاج', `${audit.netBreads} رغيف من ${audit.employee}`);
+    saveDB();
+    toast('تم استلام العجنة وتحديث الرصيد', 'success');
+    closeModal();
+    renderers.distribution();
+  });
+}
+function confirmDistributionAudit(id) {
+  const auditIndex = db.pendingDistributionAudits.findIndex(a => a.id == id);
+  if (auditIndex === -1) return;
+  const audit = db.pendingDistributionAudits[auditIndex];
+
+  showConfirm('تأكيد استلام', `هل أنت متأكد من استلام شحنة <b>${audit.netBreads} رغيف</b>؟`, () => {
+    db.pendingDistributionAudits.splice(auditIndex, 1);
+    logAction('استلام شحنة إنتاج', `${audit.netBreads} رغيف من ${audit.employee}`);
+    saveDB();
+    toast('تم استلام الشحنة وتحديث الرصيد', 'success');
+    closeModal();
+    renderers.distribution();
+  });
+}
+  
 
 function openDistModal(type) {
   if (db.isRestDay) return toast('يوم راحة', 'error');
@@ -3341,11 +3541,17 @@ function saveDist(type, avail) {
           customer.debt += debt;
         }
         if (paid > 0) {
-          db.treasury.push({
-            id: uid(), date: db.date, employee: currentUser.name, type: 'in', amount: paid,
-            method, category: 'order_payment', desc: 'دفعة أوردر: ' + cust
-          });
-        }
+  const hId = uid();
+  db.handovers.push({
+    id: hId, date: db.date, employee: currentUser.name, type: 'أوردر',
+    name: 'دفعة أوردر: ' + cust, amount: paid, paid: 0
+  });
+  db.handoverLines.push({
+    id: uid(), handoverId: hId, date: db.date, type: 'أوردر',
+    name: 'دفعة أوردر: ' + cust, employee: currentUser.name, amount: paid, source: 'order_payment',
+    desc: `دفعة أوردر من العميل ${cust}`, createdAt: db.date
+  });
+}
 
         logAction('توزيع أوردر', `${cust} - صافي ${fmt(net)} - آجل ${fmt(debt)}`);
         saveDB();
@@ -3482,69 +3688,114 @@ renderers.accounting = function () {
     else if (accTab === 'expenses') renderAccExpenses();
   }
 };
-function renderAccMenu() {
+  function renderAccMenu() {
   const cash = getCashBalanceByMethod('cash');
   const voda = getCashBalanceByMethod('vodafone');
   const totalTreasury = cash + voda;
 
-  const todayTxns = db.treasury.filter(r => r.date === getViewDate());
-  const todayIn = todayTxns.filter(t => t.type === 'in').reduce((a, b) => a + b.amount, 0);
-  const todayOut = todayTxns.filter(t => t.type === 'out').reduce((a, b) => a + b.amount, 0);
+  const todayIn = db.treasury.filter(r => r.date === getViewDate() && r.type === 'in').reduce((a, b) => a + b.amount, 0);
+  const todayOut = db.treasury.filter(r => r.date === getViewDate() && r.type === 'out').reduce((a, b) => a + b.amount, 0);
 
-  const remainingHandovers = getTodayHandoversRemaining();
+  const remainingHandovers = getAllOpenHandovers().reduce((a, h) => a + (h.amount - h.paid), 0);
   const supplierDebts = getAllSuppliersDebt();
   const todayExpenses = db.accRecords.filter(r => r.date === getViewDate() && r.type === 'expense').reduce((a, b) => a + b.amount, 0);
   const workerDebts = getAllWorkersDebt();
   const customerDebts = getAllCustomersDebt();
 
-  document.getElementById('accContent').innerHTML = `
-    <div class="card" style="background:linear-gradient(135deg, #3B82F6 0%, #1e3a8a 100%); color:#fff; border-radius:16px; padding:20px; margin-bottom:20px; display:flex; justify-content:space-around; align-items:center; box-shadow:0 10px 20px rgba(59,130,246,0.2);">
-      <div style="text-align:center;">
-        <div style="font-size:12px; color:rgba(255,255,255,0.8); margin-bottom:4px;">إجمالي الخزنة</div>
-        <div style="font-size:24px; font-weight:900; color:#FCD34D;">${fmt(totalTreasury)} ج</div>
+  // فحص فواتير المشتريات المعلقة
+  const pendingInvs = db.pendingPurchases || [];
+  let pendingAlertHTML = '';
+  if (pendingInvs.length > 0) {
+    const totalPending = pendingInvs.reduce((a, b) => a + b.total, 0);
+    pendingAlertHTML = `
+      <div style="background:var(--danger-bg); border:2px dashed var(--danger); padding:16px; border-radius:12px; margin-bottom:20px; text-align:center;">
+        <i class="fas fa-exclamation-circle" style="font-size:36px; color:var(--danger); margin-bottom:10px; animation: pulse 2s infinite;"></i>
+        <h3 style="color:var(--danger); font-size:18px; font-weight:900; margin-bottom:8px;">تنبيه هام: فواتير بانتظار الاعتماد</h3>
+        <p style="color:var(--text); font-size:14px; font-weight:bold; margin-bottom:16px;">يوجد ${pendingInvs.length} فاتورة مشتريات بإجمالي ${fmt(totalPending)} ج. لن يتم إضافتها لمديونية الموردين إلا بعد مراجعتها.</p>
+        <button class="btn btn-danger btn-lg" onclick="openPendingPurchasesModal()" style="box-shadow:0 4px 10px rgba(239,68,68,0.4);"><i class="fas fa-check-double"></i> مراجعة واعتماد الفواتير الآن</button>
       </div>
-      <div style="width:1px; height:40px; background:rgba(255,255,255,0.2);"></div>
-      <div style="text-align:center;">
-        <div style="font-size:12px; color:rgba(255,255,255,0.8); margin-bottom:4px;">دخل / خرج اليوم</div>
-        <div style="font-size:16px; font-weight:900; color:#6EE7B7;">+${fmt(todayIn)} / -${fmt(todayOut)}</div>
+    `;
+  }
+
+  let actionAlerts = '';
+  if (remainingHandovers > 0.01) {
+    actionAlerts += `
+      <div style="background:var(--warning-bg); border:1px solid var(--warning); border-right:4px solid var(--warning); padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-size:12px; font-weight:900; color:var(--warning);"><i class="fas fa-exclamation-triangle"></i> مطلوب تحصيل عهد</div>
+          <div style="font-size:16px; font-weight:900; color:var(--text);">${fmt(remainingHandovers)} ج</div>
+        </div>
+        <button class="btn btn-sm btn-warning" onclick="accTab='collections'; nav('accounting')" style="font-weight:900;">تحصيل الآن</button>
+      </div>
+    `;
+  }
+
+  document.getElementById('accContent').innerHTML = `
+    ${pendingAlertHTML}
+    
+    <div class="acc-bank-card" style="background:linear-gradient(135deg, #1e3a8a 0%, #3B82F6 100%); padding:20px; margin-bottom:16px; box-shadow:0 10px 20px rgba(30,58,138,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="font-size:13px; color:rgba(255,255,255,0.8); font-weight:bold;">إجمالي السيولة (الخزنة)</div>
+        <div style="font-size:11px; background:rgba(255,255,255,0.2); padding:4px 8px; border-radius:20px; color:#fff;">اليوم: ${esc(db.date)}</div>
+      </div>
+      <div style="font-size:32px; font-weight:900; color:var(--accent); margin-bottom:16px;">${fmt(totalTreasury)} <span style="font-size:16px; color:#fff;">ج</span></div>
+      
+      <div style="display:flex; justify-content:space-between; font-size:12px; background:rgba(0,0,0,0.1); padding:10px; border-radius:8px;">
+        <span style="color:#6EE7B7;"><i class="fas fa-arrow-down"></i> داخل: ${fmt(todayIn)} ج</span>
+        <span style="color:#FCA5A5;"><i class="fas fa-arrow-up"></i> خارج: ${fmt(todayOut)} ج</span>
       </div>
     </div>
 
+    ${actionAlerts ? `
+      <div style="margin-bottom:16px;">
+        <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:8px;"><i class="fas fa-bell"></i> مطلوب منك الآن</h4>
+        ${actionAlerts}
+      </div>
+    ` : ''}
+
+    <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:8px;"><i class="fas fa-bolt"></i> إجراءات سريعة</h4>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
-      <div class="card clickable" onclick="accTab='collections'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--success); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <button class="btn btn-success" style="padding:12px; font-size:13px; font-weight:900; box-shadow:0 4px 6px rgba(16,185,129,0.2);" onclick="accTab='collections'; nav('accounting')"><i class="fas fa-hand-holding-usd"></i> تحصيل عهد</button>
+      <button class="btn btn-danger" style="padding:12px; font-size:13px; font-weight:900; box-shadow:0 4px 6px rgba(239,68,68,0.2);" onclick="accTab='expenses'; nav('accounting')"><i class="fas fa-money-bill-transfer"></i> دفع مصروف</button>
+      <button class="btn btn-primary" style="padding:12px; font-size:13px; font-weight:900;" onclick="accTab='treasury'; nav('accounting')"><i class="fas fa-vault"></i> الخزنة</button>
+      <button class="btn btn-warning" style="padding:12px; font-size:13px; font-weight:900;" onclick="accTab='payroll'; nav('accounting')"><i class="fas fa-users"></i> يوميات العمال</button>
+    </div>
+
+    <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:8px;"><i class="fas fa-chart-pie"></i> ملخص الحسابات</h4>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+      <div class="card clickable" onclick="accTab='collections'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--success);">
         <i class="fas fa-hand-holding-usd" style="font-size:24px; color:var(--success); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">التحصيلات</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">عهد: ${fmt(remainingHandovers)} ج</div>
-        <div style="font-size:12px; font-weight:bold; color:var(--danger); margin-top:4px;">عجز: ${fmt(workerDebts)} ج</div>
       </div>
       
-      <div class="card clickable" onclick="accTab='deferred'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--warning); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <div class="card clickable" onclick="accTab='deferred'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--warning);">
         <i class="fas fa-file-invoice-dollar" style="font-size:24px; color:var(--warning); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">الآجل (العملاء)</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">إجمالي الديون</div>
         <div style="font-size:12px; font-weight:bold; color:var(--danger); margin-top:4px;">${fmt(customerDebts)} ج</div>
       </div>
       
-      <div class="card clickable" onclick="accTab='treasury'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--primary); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <div class="card clickable" onclick="accTab='treasury'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--primary);">
         <i class="fas fa-vault" style="font-size:24px; color:var(--primary); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">الخزنة</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">الرصيد والحركات</div>
       </div>
       
-      <div class="card clickable" onclick="accTab='payroll'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--info); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <div class="card clickable" onclick="accTab='payroll'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--info);">
         <i class="fas fa-users" style="font-size:24px; color:var(--info); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">العمال</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">الحضور واليوميات</div>
       </div>
       
-      <div class="card clickable" onclick="accTab='suppliers'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--accent-); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <div class="card clickable" onclick="accTab='suppliers'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--accent-);">
         <i class="fas fa-truck-loading" style="font-size:24px; color:var(--accent-); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">الموردين</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">إجمالي الديون</div>
         <div style="font-size:12px; font-weight:bold; color:var(--danger); margin-top:4px;">${fmt(supplierDebts)} ج</div>
       </div>
       
-      <div class="card clickable" onclick="accTab='expenses'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--danger); border-radius:12px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); border-left:1px solid var(--border);">
+      <div class="card clickable" onclick="accTab='expenses'; nav('accounting')" style="cursor:pointer; padding:15px; text-align:center; border-right:4px solid var(--danger);">
         <i class="fas fa-money-bill-transfer" style="font-size:24px; color:var(--danger); margin-bottom:8px;"></i>
         <div style="font-size:13px; font-weight:900;">المصروفات</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">مصروفات اليوم</div>
@@ -3553,17 +3804,166 @@ function renderAccMenu() {
     </div>
   `;
 }
+  function openPendingPurchasesModal() {
+  const pending = db.pendingPurchases || [];
+  if (pending.length === 0) return toast('لا يوجد فواتير معلقة', 'info');
 
-  function renderAccCollections() {
+  let listHTML = pending.map((inv, index) => `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+        <div>
+          <div style="font-weight:900; color:var(--primary); font-size:15px;">${esc(inv.supplier)}</div>
+          <div style="font-size:11px; color:var(--text-muted);">التاريخ: ${esc(inv.date)} | بواسطة: ${esc(inv.employee)}</div>
+        </div>
+        <div style="font-size:18px; font-weight:900; color:var(--danger);">${fmt(inv.total)} ج</div>
+      </div>
+      <div style="font-size:12px; margin-bottom:12px;">
+        ${inv.items.map(i => `<div style="display:flex; justify-content:space-between; padding:4px 0;"><span>- ${esc(i.item)} (${i.qty})</span> <span>${fmt(i.qty * i.price)} ج</span></div>`).join('')}
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-success" style="flex:1;" onclick="approvePurchase('${inv.id}')"><i class="fas fa-check"></i> اعتماد وإضافة للمورد</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="rejectPurchase('${inv.id}')"><i class="fas fa-times"></i> رفض وإلغاء الفاتورة</button>
+      </div>
+    </div>
+  `).join('');
+
+  openModal('مراجعة فواتير المشتريات', 
+    `<div style="max-height:400px; overflow-y:auto; padding:5px;">${listHTML}</div>`,
+    `<button class="btn btn-secondary btn-block" onclick="closeModal()">إغلاق</button>`
+  );
+}
+
+function approvePurchase(id) {
+  const invIndex = db.pendingPurchases.findIndex(p => p.id == id);
+  if (invIndex === -1) return;
+  const inv = db.pendingPurchases[invIndex];
+
+  showConfirm('اعتماد الفاتورة', `هل أنت متأكد من إضافة مبلغ <b>${fmt(inv.total)} ج</b> لمديونية المورد <b>${esc(inv.supplier)}</b>؟`, () => {
+    // إضافة المديونية للمورد
+    let s = db.suppliers.find(x => x.name === inv.supplier);
+    if (!s) { s = { name: inv.supplier, debt: 0 }; db.suppliers.push(s); }
+    s.debt += inv.total;
+
+    // إزالة من المعلقات
+    db.pendingPurchases.splice(invIndex, 1);
+
+    logAction('اعتماد فاتورة مشتريات', `${inv.supplier} - ${fmt(inv.total)} ج`);
+    saveDB();
+    toast('تم اعتماد الفاتورة وإضافتها للمورد', 'success');
+    closeModal();
+    renderAccMenu(); // تحديث الشاشة
+  });
+}
+
+function rejectPurchase(id) {
+  const invIndex = db.pendingPurchases.findIndex(p => p.id == id);
+  if (invIndex === -1) return;
+  const inv = db.pendingPurchases[invIndex];
+
+  showConfirm('رفض الفاتورة', `سيتم إلغاء الفاتورة وخصم البضاعة من المخزن تلقائياً. هل أنت متأكد؟`, () => {
+    // خصم البضاعة من المخزن (عكس العملية)
+    inv.items.forEach(item => {
+      adjustInventoryLayers(item.item, -item.qty, item.price);
+      db.invLog.push({ id: uid(), date: db.date, type: 'out', item: item.item, qty: item.qty, desc: `إلغاء فاتورة مشتريات مرفوضة من ${inv.supplier}`, cost: item.qty * item.price });
+    });
+
+    // إزالة من المعلقات
+    db.pendingPurchases.splice(invIndex, 1);
+
+    logAction('رفض فاتورة مشتريات', `${inv.supplier} - ${fmt(inv.total)} ج`);
+    saveDB();
+    toast('تم رفض الفاتورة وخصم البضاعة', 'info');
+    closeModal();
+    renderAccMenu(); // تحديث الشاشة
+  }, true);
+}
+  function openPendingPurchasesModal() {
+  const pending = db.pendingPurchases || [];
+  if (pending.length === 0) return toast('لا يوجد فواتير معلقة', 'info');
+
+  let listHTML = pending.map((inv, index) => `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+        <div>
+          <div style="font-weight:900; color:var(--primary); font-size:15px;">${esc(inv.supplier)}</div>
+          <div style="font-size:11px; color:var(--text-muted);">التاريخ: ${esc(inv.date)} | بواسطة: ${esc(inv.employee)}</div>
+        </div>
+        <div style="font-size:18px; font-weight:900; color:var(--danger);">${fmt(inv.total)} ج</div>
+      </div>
+      <div style="font-size:12px; margin-bottom:12px;">
+        ${inv.items.map(i => `<div style="display:flex; justify-content:space-between; padding:4px 0;"><span>- ${esc(i.item)} (${i.qty})</span> <span>${fmt(i.qty * i.price)} ج</span></div>`).join('')}
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-success" style="flex:1;" onclick="approvePurchase('${inv.id}')"><i class="fas fa-check"></i> اعتماد وإضافة للمورد</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="rejectPurchase('${inv.id}')"><i class="fas fa-times"></i> رفض وإلغاء الفاتورة</button>
+      </div>
+    </div>
+  `).join('');
+
+  openModal('مراجعة فواتير المشتريات', 
+    `<div style="max-height:400px; overflow-y:auto; padding:5px;">${listHTML}</div>`,
+    `<button class="btn btn-secondary btn-block" onclick="closeModal()">إغلاق</button>`
+  );
+}
+
+function approvePurchase(id) {
+  const invIndex = db.pendingPurchases.findIndex(p => p.id == id);
+  if (invIndex === -1) return;
+  const inv = db.pendingPurchases[invIndex];
+
+  showConfirm('اعتماد الفاتورة', `هل أنت متأكد من إضافة مبلغ <b>${fmt(inv.total)} ج</b> لمديونية المورد <b>${esc(inv.supplier)}</b>؟`, () => {
+    let s = db.suppliers.find(x => x.name === inv.supplier);
+    if (!s) { s = { name: inv.supplier, debt: 0 }; db.suppliers.push(s); }
+    s.debt += inv.total;
+
+    db.pendingPurchases.splice(invIndex, 1);
+
+    logAction('اعتماد فاتورة مشتريات', `${inv.supplier} - ${fmt(inv.total)} ج`);
+    saveDB();
+    toast('تم اعتماد الفاتورة وإضافتها للمورد', 'success');
+    closeModal();
+    renderAccMenu();
+  });
+}
+
+function rejectPurchase(id) {
+  const invIndex = db.pendingPurchases.findIndex(p => p.id == id);
+  if (invIndex === -1) return;
+  const inv = db.pendingPurchases[invIndex];
+
+  showConfirm('رفض الفاتورة', `سيتم إلغاء الفاتورة وخصم البضاعة من المخزن تلقائياً. هل أنت متأكد؟`, () => {
+    inv.items.forEach(item => {
+      adjustInventoryLayers(item.item, -item.qty, item.price);
+      db.invLog.push({ id: uid(), date: db.date, type: 'out', item: item.item, qty: item.qty, desc: `إلغاء فاتورة مشتريات مرفوضة من ${inv.supplier}`, cost: item.qty * item.price });
+    });
+
+    db.pendingPurchases.splice(invIndex, 1);
+
+    logAction('رفض فاتورة مشتريات', `${inv.supplier} - ${fmt(inv.total)} ج`);
+    saveDB();
+    toast('تم رفض الفاتورة وخصم البضاعة', 'info');
+    closeModal();
+    renderAccMenu();
+  }, true);
+}
+function renderAccCollections() {
   const openHandovers = getAllOpenHandovers();
   const openWorkerDebts = db.workerLedger.filter(l => l.status !== 'paid' && (+l.amount || 0) > 0);
 
   const handoverMap = {};
   openHandovers.forEach(h => {
     const name = h.employee || 'غير محدد';
-    if (!handoverMap[name]) handoverMap[name] = { amount: 0, types: new Set() };
-    handoverMap[name].amount += (h.amount - h.paid);
-    handoverMap[name].types.add(h.type === 'استاند' ? `استاند: ${h.name}` : h.type);
+    if (!handoverMap[name]) handoverMap[name] = { total: 0, details: {} };
+    
+    const amount = h.amount - h.paid;
+    handoverMap[name].total += amount;
+
+    let typeLabel = h.type;
+    if (h.type === 'استاند') typeLabel = `استاند (${h.name})`;
+    else if (h.type === 'أوردر') typeLabel = `أوردر (${h.name.replace('دفعة أوردر: ', '')})`;
+
+    if (!handoverMap[name].details[typeLabel]) handoverMap[name].details[typeLabel] = 0;
+    handoverMap[name].details[typeLabel] += amount;
   });
 
   const debtMap = {};
@@ -3580,7 +3980,7 @@ function renderAccMenu() {
     if (amt > 0.01) receivableMap[w.name] = { amount: amt };
   });
 
-  const totalHandover = Object.keys(handoverMap).reduce((a, n) => a + handoverMap[n].amount, 0);
+  const totalHandover = Object.keys(handoverMap).reduce((a, n) => a + handoverMap[n].total, 0);
   const totalDebt = Object.keys(debtMap).reduce((a, n) => a + debtMap[n].amount, 0);
   const totalReceivable = Object.keys(receivableMap).reduce((a, n) => a + receivableMap[n].amount, 0);
 
@@ -3589,20 +3989,35 @@ function renderAccMenu() {
   if (accCollTab === 'handovers') {
     contentHTML = Object.keys(handoverMap).length ? Object.keys(handoverMap).map(name => {
       const data = handoverMap[name];
+      
+      const breakdownHTML = Object.keys(data.details).map(type => `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); padding:8px 10px; border-radius:6px; margin-bottom:6px; border:1px solid var(--border);">
+          <span style="font-size:12px; font-weight:bold; color:var(--text-muted);">${esc(type)}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-weight:900; color:var(--danger); font-size:14px;">${fmt(data.details[type])} ج</span>
+            <button class="btn btn-sm btn-success" onclick="openCollectHandoverModal('${esc(name)}', '${esc(type)}')" style="padding:4px 10px; font-size:12px; border-radius:6px;"><i class="fas fa-hand-holding-usd"></i> تحصيل</button>
+          </div>
+        </div>
+      `).join('');
+
       return `
         <div style="display:flex; flex-direction:column; padding:14px; border:1px solid var(--border); border-radius:8px; margin-bottom:10px; gap:10px; border-right:4px solid var(--accent);">
-          <div style="display:flex; justify-content:space-between; align-items:start;">
-            <h5 style="font-size:15px; font-weight:900; cursor:pointer; color:var(--primary); display:flex; align-items:center; gap:6px;" onclick="viewHandoverDetails('${esc(name)}')">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h5 style="font-size:16px; font-weight:900; cursor:pointer; color:var(--primary); display:flex; align-items:center; gap:6px;" onclick="viewHandoverDetails('${esc(name)}')">
               ${esc(name)} <i class="fas fa-info-circle" style="font-size:14px; color:var(--info);"></i>
             </h5>
-            <div style="text-align:left; font-size:11px;">${[...data.types].map(t => `<span class="pill pill-info" style="margin-left:4px;">${esc(t)}</span>`).join('')}</div>
+            <div style="background:var(--success-bg); color:var(--success); padding:4px 10px; border-radius:20px; font-size:12px; font-weight:900;">
+              الإجمالي: ${fmt(data.total)} ج
+            </div>
           </div>
-          <div style="background:var(--success-bg); padding:10px; border-radius:6px; text-align:center;">
-            <div style="color:var(--success); font-size:12px; font-weight:bold;">إجمالي العهدة المتبقية</div>
-            <div style="font-size:18px; font-weight:900; color:var(--success);">${fmt(data.amount)} ج</div>
+          
+          <div style="margin-top:4px;">
+            <div style="font-size:11px; font-weight:900; color:var(--text-muted); margin-bottom:8px;"><i class="fas fa-list"></i> تفاصيل العهدة:</div>
+            ${breakdownHTML}
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="btn btn-sm btn-success" style="flex:1;" onclick="openCollectHandoverModal('${esc(name)}')">تحصيل عهدة</button>
+          
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+            <button class="btn btn-sm btn-success" style="flex:1;" onclick="openCollectHandoverModal('${esc(name)}')">تحصيل الكل (${fmt(data.total)} ج)</button>
             <button class="btn btn-sm btn-warning" style="flex:1;" onclick="convertHandoverToDebt('${esc(name)}')">تحويل لعجز</button>
           </div>
         </div>`;
@@ -3671,7 +4086,6 @@ function renderAccMenu() {
     <div class="card">${contentHTML}</div>
   `;
 }
-
 function viewHandoverDetails(name) {
   const handovers = db.handovers.filter(h => h.employee === name && (h.type === 'استاند' || h.type === 'بيع مباشر'));
   const totalAmt = handovers.reduce((a, b) => a + b.amount, 0);
@@ -3787,23 +4201,34 @@ function viewReceivableDetails(name) {
   `, `<button class="btn btn-secondary" onclick="closeModal()">إغلاق</button>`);
 }
 
-function openCollectHandoverModal(name) {
-  const handovers = db.handovers.filter(h =>
-    h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر')
+  function openCollectHandoverModal(name, filterType = null) {
+  let handovers = db.handovers.filter(h =>
+    h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر' || h.type === 'أوردر')
   );
+
+  // فلترة النوع المحدد
+  if (filterType) {
+    handovers = handovers.filter(h => {
+      let typeLabel = h.type;
+      if (h.type === 'استاند') typeLabel = `استاند (${h.name})`;
+      else if (h.type === 'أوردر') typeLabel = `أوردر (${h.name.replace('دفعة أوردر: ', '')})`;
+      return typeLabel === filterType;
+    });
+  }
+
   if (handovers.length === 0) return toast('لا يوجد عهد مفتوحة', 'info');
 
   const totalAmt = handovers.reduce((a, b) => a + b.amount, 0);
   const totalPaid = handovers.reduce((a, b) => a + b.paid, 0);
   const remaining = totalAmt - totalPaid;
 
+  const title = filterType ? `تحصيل من ${name} - ${filterType}` : `تحصيل من ${name}`;
   const standsOptions = db.stands.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
-  openModal('تحصيل من ' + name,
+  openModal(title,
     `<div class="summary-box" style="margin-bottom:16px;">
-       <div class="summary-row"><span>إجمالي العهد:</span><b>${fmt(totalAmt)} ج</b></div>
-       <div class="summary-row"><span>المحصل سابقاً:</span><b>${fmt(totalPaid)} ج</b></div>
-       <div class="summary-row total" style="color:var(--danger);"><span>المتبقي:</span><span>${fmt(remaining)} ج</span></div>
+       <div class="summary-row"><span>إجمالي المطلوب:</span><b>${fmt(remaining)} ج</b></div>
+       <div class="summary-row" style="font-size:11px; color:var(--text-muted);"><span>المحصل سابقاً:</span><b>${fmt(totalPaid)} ج</b></div>
      </div>
 
      <div class="form-row">
@@ -3846,11 +4271,10 @@ function openCollectHandoverModal(name) {
      </div>
     `,
     `<button class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
-     <button class="btn btn-accent" onclick="saveCollectHandover('${esc(name)}', ${remaining})">تحصيل</button>`
+     <button class="btn btn-accent" onclick="saveCollectHandover('${esc(name)}', ${remaining}, '${filterType || ''}')">تحصيل</button>`
   );
   setTimeout(() => { const p = document.getElementById('cCash'); if (p) p.focus(); }, 150);
 }
-
 function toggleReturnDetails() {
   const ret = num('cReturn');
   const div = document.getElementById('returnDetails');
@@ -3867,7 +4291,7 @@ function toggleTransferStand() {
   else div.classList.add('hidden');
 }
 
-function saveCollectHandover(name, remaining) {
+function saveCollectHandover(name, remaining, filterType = null) {
   const cash = num('cCash');
   const eat = num('cEat');
   const ret = num('cReturn');
@@ -3885,10 +4309,6 @@ function saveCollectHandover(name, remaining) {
     ${cash > 0 ? `<div>كاش: <strong>${fmt(cash)} ج</strong> (${method === 'cash' ? 'كاش' : 'فودافون'})</div>` : ''}
     ${eat > 0 ? `<div>عيش للأكل: <strong>${fmt(eat)} ج</strong></div>` : ''}
     ${ret > 0 ? `<div>عيش مرتجع: <strong>${fmt(ret)} ج</strong></div>` : ''}
-    ${ret > 0 && retType === 'oven' ? `<div>→ يضاف للمتاح للتوزيع</div>` : ''}
-    ${ret > 0 && retType === 'waste' ? `<div>→ يسجل هالك</div>` : ''}
-    ${ret > 0 && retType === 'transfer' ? `<div>→ تحويل لاستاند: <strong>${esc(transferStand)}</strong></div>` : ''}
-    <div style="margin-top:8px;">المتبقي بعد: <strong>${fmt(Math.max(0, remaining - totalSettled))} ج</strong></div>
   `;
 
   requireSaveConfirm({
@@ -3921,10 +4341,24 @@ function saveCollectHandover(name, remaining) {
           });
         }
       }
+
       let toDistribute = totalSettled;
-      const targetHandovers = db.handovers.filter(h =>
-        h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر')
-      ).sort((a, b) => parseDate(a.date) - parseDate(b.date));
+      let targetHandovers = db.handovers.filter(h =>
+        h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر' || h.type === 'أوردر')
+      );
+
+      // لو بنحصل نوع معين، نفلتره هنا عشان نخصم منه بس
+      if (filterType) {
+        targetHandovers = targetHandovers.filter(h => {
+          let typeLabel = h.type;
+          if (h.type === 'استاند') typeLabel = `استاند (${h.name})`;
+          else if (h.type === 'أوردر') typeLabel = `أوردر (${h.name.replace('دفعة أوردر: ', '')})`;
+          return typeLabel === filterType;
+        });
+      }
+
+      targetHandovers = targetHandovers.sort((a, b) => parseDate(a.date) - parseDate(b.date));
+
       targetHandovers.forEach(h => {
         if (toDistribute <= 0.01) return;
         const hRemaining = h.amount - h.paid;
@@ -3932,7 +4366,8 @@ function saveCollectHandover(name, remaining) {
         h.paid += take;
         toDistribute -= take;
       });
-      logAction('تحصيل عهدة', `${name} - كاش:${cash} عيش:${eat} مرتجع:${ret}`);
+
+      logAction('تحصيل عهدة', `${name} ${filterType ? '- ' + filterType : ''} - كاش:${cash} عيش:${eat} مرتجع:${ret}`);
       saveDB();
       closeModal();
       toast('تم التحصيل', 'success');
@@ -3941,7 +4376,6 @@ function saveCollectHandover(name, remaining) {
     }
   });
 }
-
 function openPayDebtModal(name) {
   const debts = db.workerLedger.filter(l => l.worker === name && l.status !== 'paid' && (+l.amount || 0) > 0);
   if (debts.length === 0) return toast('لا يوجد ديون', 'info');
@@ -3988,7 +4422,7 @@ function savePayDebt(name, totalDebt) {
 }
 
 function convertHandoverToDebt(name) {
-  const handovers = db.handovers.filter(h => h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر'));
+  const handovers = db.handovers.filter(h => h.employee === name && h.paid < h.amount && (h.type === 'استاند' || h.type === 'بيع مباشر' || h.type === 'أوردر'));
   if (handovers.length === 0) return toast('لا يوجد عهد', 'info');
   const remaining = handovers.reduce((a, h) => a + (h.amount - h.paid), 0);
   if (remaining <= 0.01) return toast('المتبقي صفر', 'info');
@@ -4662,7 +5096,7 @@ function updatePurchaseCalc() {
 function calcPurchasePay() { updatePurchaseCalc(); }
 
 function savePurchase() {
-  const sup = getStr('pSup'), paid = num('pPaid'), method = getStr('pMethod', 'cash');
+  const sup = getStr('pSup');
   let total = 0;
   const items = [];
 
@@ -4674,23 +5108,35 @@ function savePurchase() {
   });
 
   if (items.length === 0) return toast('أضف صنف', 'error');
-  if (paid > total) return toast('المدفوع أكبر من الإجمالي', 'error');
-  if (paid > 0 && paid > getCashBalanceByMethod(method) + 0.01) return toast('رصيد غير كافي', 'error');
 
-  const debt = total - paid;
-  const summary = `<div>المورد: <strong>${esc(sup)}</strong></div><div>الإجمالي: <strong>${fmt(total)} ج</strong></div><div>مدفوع: <strong>${fmt(paid)} ج</strong></div>${debt > 0 ? `<div style="color:var(--warning);">دين: <strong>${fmt(debt)} ج</strong></div>` : ''}`;
+  const summary = `
+    <div>المورد: <strong>${esc(sup)}</strong></div>
+    <div>إجمالي الفاتورة: <strong>${fmt(total)} ج</strong></div>
+    <div style="color:var(--warning); margin-top:8px; font-weight:bold;">سيتم إرسال الفاتورة للمحاسب لمراجعتها واعتمادها قبل إضافتها لمديونية المورد.</div>
+  `;
 
   requireSaveConfirm({
     summary,
     onConfirm: () => {
+      // 1. إضافة البضاعة للمخزون فوراً (لأنها وصلت بالفعل)
       items.forEach(inv => {
         addInventory(inv.item, inv.qty, inv.price);
-        db.invLog.push({ id: uid(), date: db.date, type: 'in', item: inv.item, qty: inv.qty, desc: `مشتريات من ${sup}`, cost: inv.qty * inv.price });
+        db.invLog.push({ id: uid(), date: db.date, type: 'in', item: inv.item, qty: inv.qty, desc: `مشتريات (بانتظار الاعتماد) من ${sup}`, cost: inv.qty * inv.price });
       });
-      if (paid > 0) db.treasury.push({ id: uid(), date: db.date, employee: currentUser.name, type: 'out', amount: paid, method, category: 'purchase', desc: `مشتريات من ${sup}` });
-      if (debt > 0) { const s = db.suppliers.find(x => x.name === sup); if (s) s.debt += debt; }
-      logAction('مشتريات', `${sup} - ${fmt(total)} ج`);
-      saveDB(); closeModal(); toast('تم الحفظ', 'success'); updateTopbar(); renderAccPurchases();
+
+      // 2. وضع الفاتورة في المعلقات بدل إضافة مديونية فورية
+      db.pendingPurchases.push({
+        id: uid(),
+        date: db.date,
+        supplier: sup,
+        items: items,
+        total: total,
+        status: 'pending',
+        employee: currentUser.name
+      });
+
+      logAction('إرسال فاتورة للاعتماد', `${sup} - ${fmt(total)} ج`);
+      saveDB(); closeModal(); toast('تم حفظ الفاتورة وإرسالها لاعتماد المحاسب', 'success'); nav('inventory');
     }
   });
 }
@@ -4709,7 +5155,7 @@ function renderAccSuppliers() {
         <div style="display:flex; flex-direction:column; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:10px; gap:10px;">
           <div style="display:flex; justify-content:space-between;">
             <h5 style="font-size:15px; font-weight:900;">${esc(s.name)}</h5>
-            <div style="font-size:16px; font-weight:900; color:var(--danger);">${fmt(s.debt)} ج</div>
+            <div style="font-size:16pطx; font-weight:900; color:var(--danger);">${fmt(s.debt)} ج</div>
           </div>
           <button class="btn btn-sm btn-primary btn-block" onclick="openSupplierPayModal('${esc(s.name)}')">سداد</button>
         </div>
@@ -4820,7 +5266,14 @@ renderers.inventory = function () {
         <div class="page-title-text"><span class="page-title-main">المخزن والمشتريات</span><span class="page-subtitle">${esc(getViewDate())}</span></div>
       </div>
     </div>
-
+${(db.pendingMaterialAudits || []).length > 0 ? `
+  <div style="background:var(--warning-bg); border:2px dashed var(--warning); padding:16px; border-radius:12px; margin-bottom:20px; text-align:center;">
+    <i class="fas fa-boxes" style="font-size:36px; color:var(--warning); margin-bottom:10px;"></i>
+    <h3 style="color:var(--warning); font-size:16px; font-weight:900; margin-bottom:8px;">تنبيه: سحب خامات بانتظار المراجعة</h3>
+    <p style="color:var(--text); font-size:13px; font-weight:bold; margin-bottom:16px;">يوجد ${(db.pendingMaterialAudits || []).length} عملية سحب دقيق من الإنتاج محتاجة تأكيدك لتحديث الرصيد والتكلفة.</p>
+    <button class="btn btn-warning btn-lg" onclick="openMaterialAuditModal()" style="box-shadow:0 4px 10px rgba(245,158,11,0.4);"><i class="fas fa-clipboard-check"></i> مراجعة وتأكيد الكميات</button>
+  </div>
+` : ''}
     <div class="acc-bank-card" style="text-align:center; margin-bottom:20px; background:linear-gradient(135deg, var(--info) 0%, #1e3a8a 100%);">
       <div style="display:flex; justify-content:space-around; align-items:center;">
         <div>
@@ -4894,6 +5347,79 @@ renderers.inventory = function () {
     </div>
   `;
 };
+  function openMaterialAuditModal() {
+  const pending = db.pendingMaterialAudits || [];
+  if (pending.length === 0) return toast('لا يوجد سحب خامات بانتظار المراجعة', 'info');
+
+  let listHTML = pending.map((audit) => `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+        <div>
+          <div style="font-weight:900; color:var(--primary); font-size:15px;">عجنة: ${esc(audit.employee)}</div>
+          <div style="font-size:11px; color:var(--text-muted);">التاريخ: ${esc(audit.date)} | الطوايل: ${audit.tawla}</div>
+        </div>
+        <div style="font-size:16px; font-weight:900; color:var(--info);">${audit.loggedQty} شيكارة مسجلة</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;">الكمية الفعلية التي تم سحبها:</label>
+        <input type="text" inputmode="decimal" id="auditQty_${audit.id}" class="form-control" value="${audit.loggedQty}" oninput="blockDec(this)">
+      </div>
+      <button class="btn btn-success btn-block" onclick="saveMaterialAudit('${audit.id}')"><i class="fas fa-check"></i> تأكيد وتصحيح</button>
+    </div>
+  `).join('');
+
+  openModal('مراجعة سحب الخامات (الإنتاج)', 
+    `<div style="max-height:400px; overflow-y:auto; padding:5px;">${listHTML}</div>`,
+    `<button class="btn btn-secondary btn-block" onclick="closeModal()">إغلاق</button>`
+  );
+}
+
+function saveMaterialAudit(id) {
+  const auditIndex = db.pendingMaterialAudits.findIndex(a => a.id == id);
+  if (auditIndex === -1) return;
+  const audit = db.pendingMaterialAudits[auditIndex];
+  
+  const actualQty = parseFloat(document.getElementById('auditQty_' + id).value) || 0;
+  const diff = actualQty - audit.loggedQty;
+
+  if (Math.abs(diff) < 0.001) {
+    // مفيش فرق، نشيلها من المعلقات وخلاص
+    db.pendingMaterialAudits.splice(auditIndex, 1);
+    saveDB(); closeModal(); toast('تمت المراجعة (لا يوجد فرق)', 'success'); 
+    if (currentSection === 'inventory') renderers.inventory();
+    return;
+  }
+
+  showConfirm('تعديل الكمية', `سيتم تعديل الكمية من <b>${audit.loggedQty}</b> إلى <b>${actualQty}</b> شيكارة، وتحديث تكلفة العجنة. هل أنت متأكد؟`, () => {
+    const batch = db.production.find(p => p.id === audit.batchId);
+    if (batch) {
+      if (diff > 0) {
+        // سحب زيادة (المخزن ينقص، التكلفة تزيد)
+        const extraCost = deductInventory('دقيق', diff);
+        db.invLog.push({ id: uid(), date: db.date, type: 'out', item: 'دقيق', qty: diff, desc: `تسوية سحب عجنة (${audit.employee})`, cost: extraCost });
+        batch.cost += extraCost;
+      } else {
+        // سحب أقل (المخزن يزيد، التكلفة تقل)
+        const avgPrice = getInventoryAvgPrice('دقيق');
+        addInventory('دقيق', Math.abs(diff), avgPrice);
+        db.invLog.push({ id: uid(), date: db.date, type: 'in', item: 'دقيق', qty: Math.abs(diff), desc: `إرجاع فائض عجنة (${audit.employee})`, cost: Math.abs(diff) * avgPrice });
+        batch.cost -= (Math.abs(diff) * avgPrice);
+      }
+      
+      // تحديث كمية الدقيق في العجنة
+      batch.flourUsed = actualQty;
+    }
+
+    // إزالة من المعلقات
+    db.pendingMaterialAudits.splice(auditIndex, 1);
+
+    logAction('تسوية سحب خامات', `${audit.employee} - من ${audit.loggedQty} إلى ${actualQty}`);
+    saveDB();
+    toast('تم التصحيح وتحديث تكلفة الإنتاج', 'success');
+    closeModal();
+    if (currentSection === 'inventory') renderers.inventory();
+  });
+}
 function openStocktakeModal() {
   const opts = Object.keys(db.inventory).map(k => `<option value="${esc(k)}">${esc(k)} (${fmt(db.inventory[k])} ${esc(db.itemUnits[k])})</option>`).join('');
   openModal('جرد وتسوية',
@@ -5759,42 +6285,61 @@ function renderResetApp() {
       <i class="fas fa-bomb" style="font-size:50px; color:var(--danger); margin-bottom:15px;"></i>
       <h3 style="color:var(--danger); margin-bottom:10px;">تصفير شامل</h3>
       <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">حذف كل البيانات نهائياً. لا يمكن التراجع.</p>
-      <button class="btn btn-danger btn-block" onclick="doReset()">تأكيد</button>
+      <button class="btn btn-danger btn-block" style="pointer-events: auto !important; position: relative; z-index: 9999;" onclick="doReset()">تأكيد الحذف</button>
     </div>
   `;
 }
-
+  
 function doReset() {
-  showConfirm('تأكيد نهائي', 'هل أنت متأكد 100%؟', () => {
-    requireAdminPin('تصفير', () => {
-      localStorage.removeItem(DB_KEY); sessionStorage.clear(); location.reload();
+  showConfirm('تأكيد نهائي', 'هل أنت متأكد 100%؟ سيتم مسح البيانات المحلية والسحابية نهائياً.', () => {
+    requireAdminPin('تصفير', async () => {
+      try {
+        db = JSON.parse(JSON.stringify(defaultDB));
+        localStorage.removeItem(DB_KEY);
+        sessionStorage.clear();
+        
+        if (typeof _supabase !== 'undefined' && _supabase) {
+          await _supabase.from('app_state').upsert({ id: 1, data: {} });
+        }
+        
+        toast('تم مسح كل البيانات بنجاح', 'success');
+        setTimeout(() => window.location.reload(), 1500);
+        
+      } catch (e) {
+        toast('حدث خطأ أثناء المسح: ' + e.message, 'error');
+        setTimeout(() => window.location.reload(), 2000);
+      }
     });
   }, true);
 }
-
-function startNewDay() {
-  showConfirm('بدء يوم جديد', 'بدء يوم جديد؟', () => {
-    db.dayStarted = true; db.isRestDay = false; db.closed = { production: false, distribution: false };
-    db.date = today(); db.viewDate = db.date;
+  
+  function startNewDay() {
+  showConfirm('بدء يوم جديد', 'هل أنت متأكد من بدء يوم جديد؟', () => {
+    db.dayStarted = true; 
+    db.isRestDay = false; 
+    db.closed = { production: false, distribution: false };
+    db.date = today(); 
+    db.viewDate = db.date;
     logAction('بدء يوم', db.date);
-    saveDB(); toast('تم البدء', 'success'); updateTopbar(); nav('dashboard');
+    saveDB(); 
+    toast('تم البدء بنجاح', 'success'); 
+    updateTopbar(); 
+    nav('dashboard');
   });
 }
-
-function promptCloseDay() {
-  const totalDebts = getTodayHandoversRemaining() + getAllCustomersDebt() + getAllWorkersDebt() + getAllSuppliersDebt();
-  const warn = totalDebts > 0.01
-    ? `<div class="danger-banner">يوجد مديونيات بإجمالي <b>${fmt(totalDebts)} ج</b></div><p style="text-align:center; margin-top:12px;">إغلاق اليوم؟</p>`
-    : `<p style="text-align:center; font-weight:700;">كل المديونيات مسددة ✅<br>إغلاق اليوم؟</p>`;
-
-  showConfirm('إغلاق اليوم', warn, () => {
-    requireAdminPin('إغلاق اليوم', () => {
-      takeDailySnapshot();
-      db.dayStarted = false; db.isRestDay = false; db.closed = { production: false, distribution: false };
-      logAction('إغلاق اليوم', db.date);
-      saveDB(); toast('تم الإغلاق', 'success'); nav('admin');
-    });
-  }, true);
+function startNewDay() {
+  showConfirm('بدء يوم جديد', 'هل أنت متأكد من بدء يوم جديد؟', () => {
+    db.dayStarted = true; 
+    db.isRestDay = false; 
+    db.closed = { production: false, distribution: false };
+    db.date = today(); 
+    db.viewDate = db.date;
+    logAction('بدء يوم', db.date);
+    saveDB(); 
+    toast('تم البدء بنجاح', 'success'); 
+    updateTopbar(); 
+    nav('dashboard');
+  });
 }
 
 function promptRestDay() {
@@ -7424,6 +7969,43 @@ function deleteRole(roleId) {
     renderUsers();
   });
 }
+  // 🆕 كود تفعيل سحب الشاشة للتحديث
+let touchStartY = 0;
+let touchEndY = 0;
+const pullToRefreshEl = document.getElementById('pullToRefresh');
+
+document.addEventListener('touchstart', e => {
+  if (window.scrollY === 0) touchStartY = e.changedTouches[0].screenY;
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (window.scrollY === 0) {
+    touchEndY = e.changedTouches[0].screenY;
+    if (touchEndY - touchStartY > 80) {
+      pullToRefreshEl.style.transform = 'translateY(0px)';
+    }
+  }
+}, { passive: true });
+  document.addEventListener('touchend', async () => {
+  if (window.scrollY === 0 && touchEndY - touchStartY > 80) {
+    // تفعيل التحديث
+    if (currentUser && typeof loadDB === 'function') {
+      if (navigator.onLine) {
+        // لو فيه نت
+        db = await loadDB();
+        if (renderers[currentSection]) renderers[currentSection]();
+        toast('تم تحديث البيانات من السحابة', 'success');
+      } else {
+        // لو مفيش نت
+        toast('لا يوجد اتصال بالإنترنت. أنت ترى البيانات المحفوظة على جهازك.', 'warning');
+      }
+    }
+    touchStartY = 0;
+    touchEndY = 0;
+    pullToRefreshEl.style.transform = 'translateY(-60px)';
+  }
+});
 </script>
+
 </body>
 </html>
